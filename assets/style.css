@@ -1,0 +1,199 @@
+/* ===========================
+   Calendar Grid
+   =========================== */
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    border-left: 1px solid #dee2e6;
+    border-top: 1px solid #dee2e6;
+}
+
+.cal-header {
+    background: #f8f9fa;
+    font-weight: 600;
+    font-size: 0.78rem;
+    text-align: center;
+    padding: 8px 4px;
+    border-right: 1px solid #dee2e6;
+    border-bottom: 1px solid #dee2e6;
+    color: #6c757d;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.cal-cell {
+    min-height: 90px;
+    padding: 6px 6px 4px;
+    border-right: 1px solid #dee2e6;
+    border-bottom: 1px solid #dee2e6;
+    background: #fff;
+    vertical-align: top;
+    transition: background 0.1s;
+}
+
+.cal-cell:hover {
+    background: #f8f9ff;
+}
+
+.cal-cell.empty {
+    background: #f9f9f9;
+}
+
+.cal-cell.today {
+    background: #eef4ff;
+    border-right-color: #0d6efd;
+    border-bottom-color: #0d6efd;
+}
+
+.cal-day-num {
+    font-size: 0.82rem;
+    font-weight: 500;
+    margin-bottom: 4px;
+    color: #495057;
+}
+
+.cal-event {
+    font-size: 0.72rem;
+    padding: 2px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.cal-event:hover {
+    opacity: 0.85;
+    transform: translateY(-1px);
+    transition: all 0.1s;
+}
+
+/* ===========================
+   Signature Canvas
+   =========================== */
+.sig-canvas-wrapper {
+    cursor: crosshair;
+    touch-action: none;
+    overflow: hidden;
+    line-height: 0;
+}
+
+#signature-canvas {
+    display: block;
+    width: 100%;
+    height: 160px;
+    touch-action: none;
+}
+
+/* ===========================
+   Report Table
+   =========================== */
+.report-table th {
+    font-size: 0.75rem;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.report-table td {
+    font-size: 0.82rem;
+    vertical-align: middle;
+}
+
+/* ===========================
+   Print Styles
+   =========================== */
+@media print {
+    .no-print,
+    nav.navbar,
+    .btn,
+    .alert,
+    .breadcrumb,
+    form select,
+    form input[type="number"] {
+        display: none !important;
+    }
+
+    body {
+        font-size: 11pt;
+        color: #000;
+        background: #fff;
+    }
+
+    .container,
+    .container-fluid {
+        max-width: 100% !important;
+        padding: 0 !important;
+    }
+
+    .card {
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    .card-body {
+        padding: 0 !important;
+    }
+
+    .report-table {
+        width: 100%;
+        font-size: 9pt;
+        border-collapse: collapse;
+    }
+
+    .report-table th,
+    .report-table td {
+        border: 1px solid #999 !important;
+        padding: 4px 6px !important;
+    }
+
+    .report-table thead {
+        background: #333 !important;
+        color: #fff !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    .report-title {
+        margin-bottom: 12pt;
+    }
+
+    .print-only {
+        display: block !important;
+    }
+
+    img[alt="Sig"],
+    img[alt="Signature"] {
+        max-width: 100px !important;
+        max-height: 50px !important;
+    }
+
+    a {
+        text-decoration: none;
+        color: #000;
+    }
+
+    @page {
+        size: A4 landscape;
+        margin: 15mm 10mm;
+    }
+}
+
+/* Hide print-only elements on screen */
+.print-only {
+    display: none;
+}
+
+/* ===========================
+   General
+   =========================== */
+.navbar-brand i {
+    font-size: 1.1rem;
+}
+
+.form-label.fw-semibold {
+    margin-bottom: 4px;
+}
+
+.badge.fs-6 {
+    font-size: 0.85rem !important;
+}
