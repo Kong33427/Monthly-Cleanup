@@ -16,9 +16,8 @@ $stmt = $db->prepare(
      WHERE MONTH(s.scheduled_date) = ? AND YEAR(s.scheduled_date) = ?
      ORDER BY s.scheduled_date, s.company, s.equipment_type"
 );
-$stmt->bind_param('ii', $month, $year);
-$stmt->execute();
-$rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+$stmt->execute([$month, $year]);
+$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // Index by day
 $byDay = [];
@@ -49,23 +48,15 @@ include 'header.php';
 
     <!-- Stats -->
     <div class="row g-3 mb-4">
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4">
             <div class="card shadow-sm text-center h-100">
                 <div class="card-body py-3">
-                    <div class="fs-2 fw-bold text-primary"><?= $total ?></div>
-                    <div class="text-muted small">Scheduled</div>
-                </div>
-            </div>
-        </div>
-        <div class="col-6 col-md-3">
-            <div class="card shadow-sm text-center h-100">
-                <div class="card-body py-3">
-                    <div class="fs-2 fw-bold text-success"><?= $completed ?></div>
+                    <div class="fs-2 fw-bold text-success"><?= $completed ?> / <?= $total ?></div>
                     <div class="text-muted small">Completed</div>
                 </div>
             </div>
         </div>
-        <div class="col-6 col-md-3">
+        <div class="col-6 col-md-4">
             <div class="card shadow-sm text-center h-100">
                 <div class="card-body py-3">
                     <div class="fs-2 fw-bold text-warning"><?= $total - $completed ?></div>
@@ -73,7 +64,7 @@ include 'header.php';
                 </div>
             </div>
         </div>
-        <div class="col-6 col-md-3 d-flex align-items-center">
+        <div class="col-12 col-md-4 d-flex align-items-center">
             <a href="report.php?month=<?= $month ?>&year=<?= $year ?>"
                class="btn btn-outline-primary w-100 h-100 d-flex align-items-center justify-content-center gap-2">
                 <i class="bi bi-file-earmark-bar-graph"></i> View Report

@@ -1,5 +1,6 @@
 # Sensitive config files
 db.php
+db_config.php
 
 # XAMPP / system files
 .DS_Store

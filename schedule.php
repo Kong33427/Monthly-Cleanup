@@ -16,17 +16,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $dept_name = trim($_POST['dept_name'] ?? '');
 
         if (in_array($company, ['GW','IND']) && in_array($type, ['PC','Printer']) && $date) {
-            $stmt = $db->prepare("INSERT IGNORE INTO schedules (company, equipment_type, scheduled_date, dept_name) VALUES (?,?,?,?)");
-            if ($stmt === false) {
-                $flash = "DB error: " . $db->error . " — have you run <a href='migrate.php'>migrate.php</a>?";
-                $flashType = 'danger';
-            } else {
-                $stmt->bind_param('ssss', $company, $type, $date, $dept_name);
-                if ($stmt->execute() && $stmt->affected_rows > 0) {
-                    $flash = "Schedule added: {$company}-{$type} on {$date}";
-                } else {
-                    $flash = "That schedule already exists or could not be added.";
+            try {
+                $stmt = $db->prepare("INSERT INTO schedules (company, equipment_type, scheduled_date, dept_name) VALUES (?,?,?,?)");
+                $stmt->execute([$company, $type, $date, $dept_name]);
+                $flash = "Schedule added: {$company}-{$type} on {$date}";
+            } catch (PDOException $e) {
+                if ((string)$e->getCode() === '23000') {
+                    $flash = "That schedule already exists.";
                     $flashType = 'warning';
+                } else {
+                    $flash = "DB error: " . $e->getMessage();
+                    $flashType = 'danger';
                 }
             }
         } else {
@@ -39,21 +39,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $id = (int)($_POST['id'] ?? 0);
         if ($id > 0) {
             $stmt = $db->prepare("DELETE FROM schedules WHERE id = ?");
-            $stmt->bind_param('i', $id);
-            $stmt->execute();
+            $stmt->execute([$id]);
             $flash = "Schedule deleted.";
         }
     }
 }
 
 // Fetch all schedules
-$result = $db->query(
+$schedules = $db->query(
     "SELECT s.*, r.id AS record_id
      FROM schedules s
      LEFT JOIN cleanup_records r ON r.schedule_id = s.id
      ORDER BY s.scheduled_date DESC, s.company, s.equipment_type"
-);
-$schedules = $result->fetch_all(MYSQLI_ASSOC);
+)->fetchAll(PDO::FETCH_ASSOC);
 
 $page_title  = 'Schedules';
 $active_page = 'schedule';

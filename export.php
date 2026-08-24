@@ -2,34 +2,43 @@
 require_once 'db.php';
 $db = getDB();
 
-$month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('n');
+// month = 0 means "All Months" (whole year)
+$month = isset($_GET['month']) ? (int)$_GET['month'] : 0;
 $year  = isset($_GET['year'])  ? (int)$_GET['year']  : (int)date('Y');
-if ($month < 1 || $month > 12) { $month = (int)date('n'); $year = (int)date('Y'); }
+if ($month < 0 || $month > 12) { $month = 0; $year = (int)date('Y'); }
 
-$monthLabel = date('Y-m', mktime(0,0,0,$month,1,$year));
+$monthLabel = $month === 0 ? "{$year}-all" : date('Y-m', mktime(0,0,0,$month,1,$year));
 
-$stmt = $db->prepare(
-    "SELECT s.company, s.equipment_type, s.scheduled_date,
-            COALESCE(r.cleaned_date, '') AS cleaned_date,
-            COALESCE(r.quantity, '') AS quantity,
-            COALESCE(r.dust_blowing, '') AS dust_blowing,
-            COALESCE(r.rinse_detergent, '') AS rinse_detergent,
-            COALESCE(r.dept_name, '') AS dept_name,
-            COALESCE(r.confirmed_by, '') AS confirmed_by,
-            COALESCE(r.notes, '') AS notes,
+// Overdue is computed against PHP's clock (not the DB server's) so it stays
+// consistent with report.php/index.php/cleanup.php/schedule.php, which all
+// compare against date('Y-m-d') — the DB is a separate host from the web
+// server, so their clocks are not guaranteed to agree.
+$today = date('Y-m-d');
+
+$sql = "SELECT s.company, s.equipment_type, s.scheduled_date,
+            r.cleaned_date, r.quantity, r.dust_blowing, r.rinse_detergent,
+            r.dept_name, r.confirmed_by, r.notes,
             CASE WHEN r.id IS NOT NULL THEN 'Completed' ELSE
-                CASE WHEN s.scheduled_date < CURDATE() THEN 'Overdue' ELSE 'Pending' END
+                CASE WHEN s.scheduled_date < ? THEN 'Overdue' ELSE 'Pending' END
             END AS status
      FROM schedules s
      LEFT JOIN cleanup_records r ON r.schedule_id = s.id
-     WHERE MONTH(s.scheduled_date) = ? AND YEAR(s.scheduled_date) = ?
-     ORDER BY s.scheduled_date, s.company, s.equipment_type"
-);
-$stmt->bind_param('ii', $month, $year);
-$stmt->execute();
-$rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+     WHERE " . ($month === 0 ? "YEAR(s.scheduled_date) = ?" : "MONTH(s.scheduled_date) = ? AND YEAR(s.scheduled_date) = ?") . "
+     ORDER BY s.scheduled_date, s.company, s.equipment_type";
+$stmt = $db->prepare($sql);
+$stmt->execute($month === 0 ? [$today, $year] : [$today, $month, $year]);
+$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-$filename = "cleanup_report_{$monthLabel}.csv";
+// Status filter: all | completed | pending | overdue
+$status = $_GET['status'] ?? 'all';
+if (!in_array($status, ['all', 'completed', 'pending', 'overdue'])) $status = 'all';
+if ($status !== 'all') {
+    $rows = array_values(array_filter($rows, function($r) use ($status) {
+        return strtolower($r['status']) === $status;
+    }));
+}
+
+$filename = "cleanup_report_{$monthLabel}" . ($status !== 'all' ? "_{$status}" : '') . ".csv";
 
 header('Content-Type: text/csv; charset=utf-8');
 header("Content-Disposition: attachment; filename=\"{$filename}\"");
@@ -52,13 +61,13 @@ foreach ($rows as $r) {
         $r['company'],
         $r['equipment_type'],
         $r['scheduled_date'],
-        $r['cleaned_date'],
-        $r['quantity'],
-        $r['dust_blowing'] === '' ? '' : ($r['dust_blowing'] ? 'Yes' : 'No'),
-        $r['rinse_detergent'] === '' ? '' : ($r['rinse_detergent'] ? 'Yes' : 'No'),
-        $r['dept_name'],
-        $r['confirmed_by'],
-        $r['notes'],
+        $r['cleaned_date'] ?? '',
+        $r['quantity'] ?? '',
+        $r['dust_blowing'] === null ? '' : ($r['dust_blowing'] ? 'Yes' : 'No'),
+        $r['rinse_detergent'] === null ? '' : ($r['rinse_detergent'] ? 'Yes' : 'No'),
+        $r['dept_name'] ?? '',
+        $r['confirmed_by'] ?? '',
+        $r['notes'] ?? '',
         $r['status'],
     ]);
 }

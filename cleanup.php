@@ -19,9 +19,8 @@ $stmt = $db->prepare(
      LEFT JOIN cleanup_records r ON r.schedule_id = s.id
      WHERE s.id = ?"
 );
-$stmt->bind_param('i', $id);
-$stmt->execute();
-$schedule = $stmt->get_result()->fetch_assoc();
+$stmt->execute([$id]);
+$schedule = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$schedule) {
     header('Location: index.php');
@@ -66,18 +65,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($schedule['record_id'])) {
               signature_data, signature_type, cleaned_date, notes)
              VALUES (?,?,?,?,?,?,?,?,?,?)"
         );
-        // types: int, int, int, int, str, str, str, str, str, str
-        $ins->bind_param('iiiissssss',
-            $id, $quantity, $dust_blowing, $rinse_detergent,
-            $dept_name, $confirmed_by,
-            $signature_data, $signature_type, $cleaned_date, $notes
-        );
-
-        if ($ins->execute()) {
+        try {
+            $ins->execute([
+                $id, $quantity, $dust_blowing, $rinse_detergent,
+                $dept_name, $confirmed_by,
+                $signature_data, $signature_type, $cleaned_date, $notes
+            ]);
             header("Location: cleanup.php?id={$id}&saved=1");
             exit;
-        } else {
-            $flash = "Save failed: " . htmlspecialchars($db->error);
+        } catch (PDOException $e) {
+            $flash = "Save failed: " . htmlspecialchars($e->getMessage());
             $flashType = 'danger';
         }
     } else {
@@ -88,8 +85,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && empty($schedule['record_id'])) {
 
 if (isset($_GET['saved'])) {
     // Reload to get record
-    $stmt->execute();
-    $schedule = $stmt->get_result()->fetch_assoc();
+    $stmt->execute([$id]);
+    $schedule = $stmt->fetch(PDO::FETCH_ASSOC);
     $flash = 'Cleanup recorded successfully!';
 }
 
@@ -197,6 +194,13 @@ include 'header.php';
                 <?php endif; ?>
             </div>
         </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-3 no-print">
+        <button onclick="window.print()" class="btn btn-outline-secondary">
+            <i class="bi bi-printer"></i> Print / PDF
+        </button>
+        <a href="index.php" class="btn btn-outline-secondary">Back to Calendar</a>
     </div>
 
     <?php else: ?>

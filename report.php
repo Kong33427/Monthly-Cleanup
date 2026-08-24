@@ -2,26 +2,44 @@
 require_once 'db.php';
 $db = getDB();
 
-$month = isset($_GET['month']) ? (int)$_GET['month'] : (int)date('n');
+// month = 0 means "All Months" and is the default when none is specified
+$month = isset($_GET['month']) ? (int)$_GET['month'] : 0;
 $year  = isset($_GET['year'])  ? (int)$_GET['year']  : (int)date('Y');
-if ($month < 1 || $month > 12) { $month = (int)date('n'); $year = (int)date('Y'); }
+if ($month < 0 || $month > 12) { $month = 0; $year = (int)date('Y'); }
 
-$monthName = date('F Y', mktime(0,0,0,$month,1,$year));
+$monthName = $month === 0 ? "All Months {$year}" : date('F Y', mktime(0,0,0,$month,1,$year));
 
-// Fetch all schedules for the month with their records
-$stmt = $db->prepare(
-    "SELECT s.company, s.equipment_type, s.scheduled_date, s.id AS schedule_id,
+// Fetch all schedules for the month (or whole year) with their records
+$sql = "SELECT s.company, s.equipment_type, s.scheduled_date, s.id AS schedule_id,
             r.quantity, r.dust_blowing, r.rinse_detergent,
             r.dept_name, r.confirmed_by, r.cleaned_date,
             r.signature_data, r.notes
      FROM schedules s
      LEFT JOIN cleanup_records r ON r.schedule_id = s.id
-     WHERE MONTH(s.scheduled_date) = ? AND YEAR(s.scheduled_date) = ?
-     ORDER BY s.scheduled_date, s.company, s.equipment_type"
-);
-$stmt->bind_param('ii', $month, $year);
-$stmt->execute();
-$records = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+     WHERE " . ($month === 0 ? "YEAR(s.scheduled_date) = ?" : "MONTH(s.scheduled_date) = ? AND YEAR(s.scheduled_date) = ?") . "
+     ORDER BY s.scheduled_date, s.company, s.equipment_type";
+$stmt = $db->prepare($sql);
+$stmt->execute($month === 0 ? [$year] : [$month, $year]);
+$records = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+function isOverdue(array $r, string $today): bool {
+    return empty($r['cleaned_date']) && $r['scheduled_date'] < $today;
+}
+
+// Status filter: all | completed | pending | overdue
+$status = $_GET['status'] ?? 'all';
+if (!in_array($status, ['all', 'completed', 'pending', 'overdue'])) $status = 'all';
+
+if ($status !== 'all') {
+    $today = date('Y-m-d');
+    $records = array_values(array_filter($records, function($r) use ($status, $today) {
+        $isDone    = !empty($r['cleaned_date']);
+        $isOverdue = isOverdue($r, $today);
+        if ($status === 'completed') return $isDone;
+        if ($status === 'overdue')   return $isOverdue;
+        return !$isDone && !$isOverdue; // pending
+    }));
+}
 
 // Build a lookup of which groups appear
 $groups = [];
@@ -49,6 +67,7 @@ include 'header.php';
     <div class="d-flex flex-wrap align-items-center gap-3 mb-4 no-print">
         <form method="get" class="d-flex gap-2 align-items-center">
             <select name="month" class="form-select form-select-sm" style="width:auto">
+                <option value="0" <?= $month === 0 ? 'selected' : '' ?>>All Months</option>
                 <?php for ($m = 1; $m <= 12; $m++): ?>
                 <option value="<?= $m ?>" <?= $m === $month ? 'selected' : '' ?>>
                     <?= date('F', mktime(0,0,0,$m,1)) ?>
@@ -57,10 +76,16 @@ include 'header.php';
             </select>
             <input type="number" name="year" class="form-control form-control-sm" style="width:90px"
                    value="<?= $year ?>" min="2020" max="2099">
+            <select name="status" class="form-select form-select-sm" style="width:auto">
+                <option value="all"       <?= $status === 'all'       ? 'selected' : '' ?>>All Status</option>
+                <option value="completed" <?= $status === 'completed' ? 'selected' : '' ?>>Completed</option>
+                <option value="pending"   <?= $status === 'pending'   ? 'selected' : '' ?>>Pending</option>
+                <option value="overdue"   <?= $status === 'overdue'   ? 'selected' : '' ?>>Overdue</option>
+            </select>
             <button type="submit" class="btn btn-sm btn-primary">View</button>
         </form>
         <div class="ms-auto d-flex gap-2">
-            <a href="export.php?month=<?= $month ?>&year=<?= $year ?>"
+            <a href="export.php?month=<?= $month ?>&year=<?= $year ?>&status=<?= $status ?>"
                class="btn btn-sm btn-outline-success">
                 <i class="bi bi-filetype-csv"></i> Export CSV
             </a>
@@ -83,8 +108,7 @@ include 'header.php';
     $done  = count(array_filter($records, function($r) { return !empty($r['cleaned_date']); }));
     ?>
     <div class="d-flex gap-3 mb-3 no-print">
-        <span class="badge bg-primary fs-6"><?= $total ?> Scheduled</span>
-        <span class="badge bg-success fs-6"><?= $done ?> Completed</span>
+        <span class="badge bg-success fs-6"><?= $done ?> / <?= $total ?> Completed</span>
         <span class="badge bg-warning text-dark fs-6"><?= $total - $done ?> Pending</span>
     </div>
 
@@ -106,14 +130,16 @@ include 'header.php';
                             <th>Confirmed By</th>
                             <th>Signature</th>
                             <th>Status</th>
+                            <th class="no-print">View</th>
                         </tr>
                     </thead>
                     <tbody>
                     <?php
                     // Show scheduled records
+                    $today = date('Y-m-d');
                     foreach ($records as $r):
                         $isDone = !empty($r['cleaned_date']);
-                        $isOverdue = !$isDone && $r['scheduled_date'] < date('Y-m-d');
+                        $isOverdue = isOverdue($r, $today);
                     ?>
                     <tr class="<?= $isDone ? 'table-success' : ($isOverdue ? 'table-danger' : '') ?>">
                         <td class="fw-semibold"><?= htmlspecialchars($r['company']) ?></td>
@@ -157,12 +183,18 @@ include 'header.php';
                                 <span class="badge bg-warning text-dark">Pending</span>
                             <?php endif; ?>
                         </td>
+                        <td class="text-center no-print">
+                            <a href="cleanup.php?id=<?= $r['schedule_id'] ?>"
+                               class="btn btn-sm btn-outline-primary" title="View individual report">
+                                <i class="bi bi-eye"></i>
+                            </a>
+                        </td>
                     </tr>
                     <?php endforeach; ?>
 
                     <?php if (empty($records)): ?>
                     <tr>
-                        <td colspan="11" class="text-center text-muted py-4">
+                        <td colspan="12" class="text-center text-muted py-4">
                             No schedules found for <?= htmlspecialchars($monthName) ?>.
                         </td>
                     </tr>
@@ -172,24 +204,6 @@ include 'header.php';
             </div>
         </div>
     </div>
-
-    <!-- Signature section for print (larger view) -->
-    <?php foreach ($records as $r): if (!$r['signature_data']) continue; ?>
-    <div class="mt-4 print-only">
-        <div class="d-flex gap-4 align-items-end">
-            <div>
-                <div class="small text-muted mb-1">
-                    <?= htmlspecialchars($r['company']) ?>-<?= htmlspecialchars($r['equipment_type']) ?>
-                    Signature (<?= htmlspecialchars($r['confirmed_by']) ?>)
-                </div>
-                <div class="border p-1" style="width:200px;height:80px">
-                    <img src="<?= $r['signature_data'] ?>" alt="Signature"
-                         style="max-width:100%;max-height:100%">
-                </div>
-            </div>
-        </div>
-    </div>
-    <?php endforeach; ?>
 
     <!-- Print footer -->
     <div class="mt-4 print-only text-muted small text-end">
