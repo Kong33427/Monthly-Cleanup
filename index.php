@@ -9,6 +9,9 @@ if ($month > 12) { $month = 1;  $year++; }
 
 $db = getDB();
 
+$planData = require __DIR__ . '/plan_data.php';
+$planMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
 $stmt = $db->prepare(
     "SELECT s.*, r.id AS record_id
      FROM schedules s
@@ -139,6 +142,54 @@ include 'header.php';
             <a href="schedule.php" class="btn btn-primary">
                 <i class="bi bi-plus-lg"></i> Add Schedule
             </a>
+        </div>
+    </div>
+
+    <!-- Annual plan reference table -->
+    <div class="card shadow-sm mt-3 no-print">
+        <div class="card-header d-flex align-items-center">
+            <button class="btn btn-sm btn-outline-secondary" type="button"
+                    data-bs-toggle="collapse" data-bs-target="#planTable">
+                <i class="bi bi-calendar2-range"></i> View Annual Plan
+            </button>
+            <span class="text-muted small ms-3">
+                <span class="plan-legend-swatch" style="background-color:#bcd2f0"></span>P = Printer
+                <span class="plan-legend-swatch ms-2" style="background-color:#f7c9a3"></span>C = Computer/PC
+            </span>
+        </div>
+        <div class="collapse" id="planTable">
+            <div class="card-body">
+                <?php foreach ($planData as $company => $depts): ?>
+                <h6 class="fw-bold mt-2 mb-2"><?= htmlspecialchars($company) ?></h6>
+                <div class="table-responsive mb-4">
+                    <table class="table table-bordered table-sm plan-table mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Department</th>
+                                <?php foreach ($planMonths as $m): ?>
+                                <th><?= $m ?></th>
+                                <?php endforeach; ?>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        <?php foreach ($depts as $dept => $types): ?>
+                            <tr>
+                                <td><?= htmlspecialchars($dept) ?></td>
+                                <?php for ($m = 1; $m <= 12; $m++):
+                                    $hasP = in_array($m, $types['Printer'] ?? []);
+                                    $hasC = in_array($m, $types['PC'] ?? []);
+                                ?>
+                                <td class="<?= $hasP ? 'plan-cell-p' : ($hasC ? 'plan-cell-c' : '') ?>">
+                                    <?= $hasP ? 'P' : ($hasC ? 'C' : '') ?>
+                                </td>
+                                <?php endfor; ?>
+                            </tr>
+                        <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                <?php endforeach; ?>
+            </div>
         </div>
     </div>
 

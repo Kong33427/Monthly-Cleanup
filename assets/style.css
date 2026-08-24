@@ -86,6 +86,46 @@
 }
 
 /* ===========================
+   Annual Plan Table
+   =========================== */
+.plan-table th, .plan-table td {
+    font-size: 0.8rem;
+    text-align: center;
+    vertical-align: middle;
+    white-space: nowrap;
+}
+
+.plan-table td:first-child, .plan-table th:first-child {
+    text-align: left;
+    white-space: normal;
+}
+
+.plan-table thead th {
+    background-color: #eef1f5;
+}
+
+.plan-cell-p {
+    background-color: #bcd2f0 !important;
+    font-weight: 700;
+    color: #1a3d6d;
+}
+
+.plan-cell-c {
+    background-color: #f7c9a3 !important;
+    font-weight: 700;
+    color: #7a3400;
+}
+
+.plan-legend-swatch {
+    display: inline-block;
+    width: 0.9em;
+    height: 0.9em;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-right: 4px;
+}
+
+/* ===========================
    Report Table
    =========================== */
 .report-table th {

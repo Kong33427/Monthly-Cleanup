@@ -1,45 +1,24 @@
 <?php
 require_once 'db.php';
+require_once 'report_query.php';
 $db = getDB();
 
-// month = 0 means "All Months" and is the default when none is specified
-$month = isset($_GET['month']) ? (int)$_GET['month'] : 0;
-$year  = isset($_GET['year'])  ? (int)$_GET['year']  : (int)date('Y');
-if ($month < 0 || $month > 12) { $month = 0; $year = (int)date('Y'); }
+[$month, $year] = normalizeMonthYear($_GET['month'] ?? null, $_GET['year'] ?? null);
+$status = normalizeStatus($_GET['status'] ?? null);
 
 $monthName = $month === 0 ? "All Months {$year}" : date('F Y', mktime(0,0,0,$month,1,$year));
 
-// Fetch all schedules for the month (or whole year) with their records
-$sql = "SELECT s.company, s.equipment_type, s.scheduled_date, s.id AS schedule_id,
-            r.quantity, r.dust_blowing, r.rinse_detergent,
-            r.dept_name, r.confirmed_by, r.cleaned_date,
-            r.signature_data, r.notes
-     FROM schedules s
-     LEFT JOIN cleanup_records r ON r.schedule_id = s.id
-     WHERE " . ($month === 0 ? "YEAR(s.scheduled_date) = ?" : "MONTH(s.scheduled_date) = ? AND YEAR(s.scheduled_date) = ?") . "
-     ORDER BY s.scheduled_date, s.company, s.equipment_type";
+// Fetch schedules for the month (or whole year) + status filter, applied in SQL
+[$sql, $params] = buildReportQuery(
+    "s.company, s.equipment_type, s.scheduled_date, s.id AS schedule_id,
+     r.quantity, r.dust_blowing, r.rinse_detergent,
+     r.dept_name, r.confirmed_by, r.cleaned_date,
+     r.signature_data, r.notes",
+    $month, $year, $status
+);
 $stmt = $db->prepare($sql);
-$stmt->execute($month === 0 ? [$year] : [$month, $year]);
+$stmt->execute($params);
 $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-function isOverdue(array $r, string $today): bool {
-    return empty($r['cleaned_date']) && $r['scheduled_date'] < $today;
-}
-
-// Status filter: all | completed | pending | overdue
-$status = $_GET['status'] ?? 'all';
-if (!in_array($status, ['all', 'completed', 'pending', 'overdue'])) $status = 'all';
-
-if ($status !== 'all') {
-    $today = date('Y-m-d');
-    $records = array_values(array_filter($records, function($r) use ($status, $today) {
-        $isDone    = !empty($r['cleaned_date']);
-        $isOverdue = isOverdue($r, $today);
-        if ($status === 'completed') return $isDone;
-        if ($status === 'overdue')   return $isOverdue;
-        return !$isDone && !$isOverdue; // pending
-    }));
-}
 
 // Build a lookup of which groups appear
 $groups = [];

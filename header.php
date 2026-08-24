@@ -11,7 +11,8 @@ $active_page = $active_page ?? '';
     <title><?= htmlspecialchars($page_title) ?> | Monthly Cleanup</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <link rel="stylesheet" href="assets/style.css">
+    <?php $styleMtime = @filemtime(__DIR__ . '/assets/style.css'); ?>
+    <link rel="stylesheet" href="assets/style.css<?= $styleMtime ? "?v={$styleMtime}" : '' ?>">
 </head>
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark no-print">

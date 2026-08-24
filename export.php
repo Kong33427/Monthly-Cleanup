@@ -1,42 +1,22 @@
 <?php
 require_once 'db.php';
+require_once 'report_query.php';
 $db = getDB();
 
-// month = 0 means "All Months" (whole year)
-$month = isset($_GET['month']) ? (int)$_GET['month'] : 0;
-$year  = isset($_GET['year'])  ? (int)$_GET['year']  : (int)date('Y');
-if ($month < 0 || $month > 12) { $month = 0; $year = (int)date('Y'); }
+[$month, $year] = normalizeMonthYear($_GET['month'] ?? null, $_GET['year'] ?? null);
+$status = normalizeStatus($_GET['status'] ?? null);
 
 $monthLabel = $month === 0 ? "{$year}-all" : date('Y-m', mktime(0,0,0,$month,1,$year));
 
-// Overdue is computed against PHP's clock (not the DB server's) so it stays
-// consistent with report.php/index.php/cleanup.php/schedule.php, which all
-// compare against date('Y-m-d') — the DB is a separate host from the web
-// server, so their clocks are not guaranteed to agree.
-$today = date('Y-m-d');
-
-$sql = "SELECT s.company, s.equipment_type, s.scheduled_date,
-            r.cleaned_date, r.quantity, r.dust_blowing, r.rinse_detergent,
-            r.dept_name, r.confirmed_by, r.notes,
-            CASE WHEN r.id IS NOT NULL THEN 'Completed' ELSE
-                CASE WHEN s.scheduled_date < ? THEN 'Overdue' ELSE 'Pending' END
-            END AS status
-     FROM schedules s
-     LEFT JOIN cleanup_records r ON r.schedule_id = s.id
-     WHERE " . ($month === 0 ? "YEAR(s.scheduled_date) = ?" : "MONTH(s.scheduled_date) = ? AND YEAR(s.scheduled_date) = ?") . "
-     ORDER BY s.scheduled_date, s.company, s.equipment_type";
+[$sql, $params] = buildReportQuery(
+    "s.company, s.equipment_type, s.scheduled_date,
+     r.cleaned_date, r.quantity, r.dust_blowing, r.rinse_detergent,
+     r.dept_name, r.confirmed_by, r.notes",
+    $month, $year, $status
+);
 $stmt = $db->prepare($sql);
-$stmt->execute($month === 0 ? [$today, $year] : [$today, $month, $year]);
+$stmt->execute($params);
 $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Status filter: all | completed | pending | overdue
-$status = $_GET['status'] ?? 'all';
-if (!in_array($status, ['all', 'completed', 'pending', 'overdue'])) $status = 'all';
-if ($status !== 'all') {
-    $rows = array_values(array_filter($rows, function($r) use ($status) {
-        return strtolower($r['status']) === $status;
-    }));
-}
 
 $filename = "cleanup_report_{$monthLabel}" . ($status !== 'all' ? "_{$status}" : '') . ".csv";
 
@@ -56,7 +36,10 @@ fputcsv($out, [
     'Department', 'Confirmed By', 'Notes', 'Status'
 ]);
 
+$today = date('Y-m-d');
 foreach ($rows as $r) {
+    $isDone = !empty($r['cleaned_date']);
+    $statusLabel = $isDone ? 'Completed' : (isOverdue($r, $today) ? 'Overdue' : 'Pending');
     fputcsv($out, [
         $r['company'],
         $r['equipment_type'],
@@ -68,7 +51,7 @@ foreach ($rows as $r) {
         $r['dept_name'] ?? '',
         $r['confirmed_by'] ?? '',
         $r['notes'] ?? '',
-        $r['status'],
+        $statusLabel,
     ]);
 }
 

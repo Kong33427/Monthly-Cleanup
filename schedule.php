@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt->execute([$company, $type, $date, $dept_name]);
                 $flash = "Schedule added: {$company}-{$type} on {$date}";
             } catch (PDOException $e) {
-                if ((string)$e->getCode() === '23000') {
+                if (isDuplicateKeyError($e)) {
                     $flash = "That schedule already exists.";
                     $flashType = 'warning';
                 } else {
@@ -125,6 +125,16 @@ include 'header.php';
                             Add GW-PC, GW-Printer, IND-PC, IND-Printer
                         </button>
                     </form>
+                </div>
+            </div>
+
+            <div class="card shadow-sm mt-3">
+                <div class="card-body">
+                    <h6 class="fw-semibold text-muted mb-2">Annual Plan</h6>
+                    <p class="small text-muted">Insert this month's schedules from the annual cleaning plan:</p>
+                    <a href="seed_plan_2026.php" class="btn btn-outline-primary btn-sm w-100">
+                        <i class="bi bi-calendar2-check"></i> Create This Month's Schedule
+                    </a>
                 </div>
             </div>
         </div>

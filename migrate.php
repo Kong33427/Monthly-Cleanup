@@ -1,8 +1,8 @@
 <?php
 // Deprecated: this app now runs on SQL Server, not MySQL/XAMPP.
 // The current schema (including dept_name and the 4-column unique key) is
-// already the baseline of the monthly_cleanup database on SQL Server, so
-// there is nothing left for this script to migrate.
+// already the baseline defined in setup.php — there is nothing left for
+// this script to migrate.
 ?>
 <!DOCTYPE html>
 <html lang="en">

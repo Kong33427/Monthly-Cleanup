@@ -1,85 +1,91 @@
 <?php
-// One-time seed: inserts the 2026 annual cleaning plan (Printer & Computer)
-// as schedules, based on the department/month plan sheet.
-// Safe to re-run — catches unique-constraint violations on (company,
-// equipment_type, scheduled_date, dept_name) so already-inserted rows are skipped.
+// Monthly seed: inserts one month's slice of the 2026 annual cleaning plan
+// (Printer & Computer) as schedules, based on the department/month plan sheet.
+// Meant to be re-run once each month as it starts. By default it only ever
+// targets the CURRENT calendar month. If there's nothing to create there
+// (no plan entries this month, or everything already exists), it asks
+// before creating a future month's schedules ahead of time — it never does
+// that silently.
 require_once 'db.php';
 $db = getDB();
 
-$YEAR = 2026;
 $DAY  = 1; // scheduled_date = the 1st of each plan month
 
-// [company, equipment_type, dept_name, [months...]]
-$plan = [
-    // GW
-    ['GW', 'Printer', 'บัญชี',         [1,3,5,7,9,11]],
-    ['GW', 'PC',      'บัญชี',         [4]],
-    ['GW', 'Printer', 'ประสานงานขาย',  [1,3,5,7,9,11]],
-    ['GW', 'PC',      'ประสานงานขาย',  [4]],
-    ['GW', 'PC',      'ขาย',           [4]],
-    ['GW', 'PC',      'การตลาด',       [4]],
-    ['GW', 'PC',      'ต่างประเทศ',     [4]],
-    ['GW', 'PC',      'Job control',   [4]],
-    ['GW', 'PC',      'สำนักงานกลาง',   [4]],
-    ['GW', 'Printer', 'จัดซื้อ',        [1,3,5,7,9,11]],
-    ['GW', 'PC',      'จัดซื้อ',        [4]],
-    ['GW', 'PC',      'บุคคล',         [4]],
-    ['GW', 'PC',      'วิศวกรรม',       [11]],
-    ['GW', 'Printer', 'ผลิต',          [1,3,5,7,9,11]],
-    ['GW', 'PC',      'ผลิต',          [6]],
-    ['GW', 'PC',      'วางแผน',        [6]],
-    ['GW', 'PC',      'QA-QC',        [6]],
-    ['GW', 'PC',      'สโตร์',         [6]],
-    ['GW', 'Printer', 'คลังสินค้า',     [1,3,5,7,9,11]],
-    ['GW', 'PC',      'คลังสินค้า',     [6]],
-    ['GW', 'PC',      'ออกแบบ',        [6]],
-    ['GW', 'PC',      'ไอที',          [6]],
-    // เครื่องจักร has no scheduled cleanups in the plan
+$planData = require __DIR__ . '/plan_data.php';
 
-    // IND
-    ['IND', 'PC',      'บุคคล',    [6]],
-    ['IND', 'Printer', 'บัญชี',    [1,3,5,7,9,11]],
-    ['IND', 'PC',      'บัญชี',    [6]],
-    ['IND', 'PC',      'ตรวจสอบ', [6]],
-    ['IND', 'Printer', 'คลังสินค้า', [1,3,5,7,9,11]],
-    ['IND', 'PC',      'คลังสินค้า', [6]],
-    ['IND', 'Printer', 'จัดซื้อ',   [1,3,5,7,9,11]],
-    ['IND', 'PC',      'จัดซื้อ',   [6]],
-    ['IND', 'Printer', 'ผลิต',     [1,3,5,7,9,11]],
-    ['IND', 'PC',      'ผลิต',     [6]],
-    ['IND', 'PC',      'วางแผน',   [6]],
-];
-
-$stmt = $db->prepare("INSERT INTO schedules (company, equipment_type, scheduled_date, dept_name) VALUES (?,?,?,?)");
-
-// Only seed from the current month forward — past months are treated as
-// already missed rather than backfilled as overdue backlog.
-$cutoff = date('Y-m-01');
-
-$inserted = 0;
-$skipped  = 0;
-$pastSkipped = 0;
-$errors   = [];
-
-foreach ($plan as [$company, $type, $dept, $months]) {
-    foreach ($months as $m) {
-        $date = sprintf('%04d-%02d-%02d', $YEAR, $m, $DAY);
-        if ($date < $cutoff) {
-            $pastSkipped++;
-            continue;
+// Flatten plan_data.php's [company][dept][type => months] shape into
+// [company, type, dept, months] tuples.
+$plan = [];
+foreach ($planData as $company => $depts) {
+    foreach ($depts as $dept => $types) {
+        foreach ($types as $type => $months) {
+            $plan[] = [$company, $type, $dept, $months];
         }
+    }
+}
+
+function monthHasPlanEntries(array $plan, int $month): bool {
+    foreach ($plan as [, , , $months]) {
+        if (in_array($month, $months, true)) return true;
+    }
+    return false;
+}
+
+// Finds the next month after $afterMonth (within the current year) that has
+// any plan entries at all. Returns null if none remain this year.
+function nextPlannedMonth(array $plan, int $afterMonth): ?int {
+    for ($m = $afterMonth + 1; $m <= 12; $m++) {
+        if (monthHasPlanEntries($plan, $m)) return $m;
+    }
+    return null;
+}
+
+function seedMonth(PDO $db, array $plan, int $year, int $month, int $day): array {
+    $stmt = $db->prepare("INSERT INTO schedules (company, equipment_type, scheduled_date, dept_name) VALUES (?,?,?,?)");
+    $inserted = 0;
+    $skipped  = 0;
+    $errors   = [];
+    foreach ($plan as [$company, $type, $dept, $months]) {
+        if (!in_array($month, $months, true)) continue;
+        $date = sprintf('%04d-%02d-%02d', $year, $month, $day);
         try {
             $stmt->execute([$company, $type, $date, $dept]);
             $inserted++;
         } catch (PDOException $e) {
-            if ((string)$e->getCode() === '23000') {
+            if (isDuplicateKeyError($e)) {
                 $skipped++;
             } else {
                 $errors[] = "{$company}-{$type}-{$date}-{$dept}: " . $e->getMessage();
             }
         }
     }
+    return [$inserted, $skipped, $errors];
 }
+
+$currentMonth = (int)date('n');
+$currentYear  = (int)date('Y');
+
+$confirmAhead = $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ahead_month']);
+
+$result = null;   // [inserted, skipped, errors, month, year]
+$askAhead = null; // month number to offer, or null
+
+if ($confirmAhead) {
+    $aheadMonth = (int)$_POST['ahead_month'];
+    [$inserted, $skipped, $errors] = seedMonth($db, $plan, $currentYear, $aheadMonth, $DAY);
+    $result = [$inserted, $skipped, $errors, $aheadMonth, $currentYear];
+} else {
+    [$inserted, $skipped, $errors] = seedMonth($db, $plan, $currentYear, $currentMonth, $DAY);
+    if ($inserted === 0 && empty($errors)) {
+        // Nothing new for the current month — either the plan has no
+        // entries this month, or everything's already been created.
+        $askAhead = nextPlannedMonth($plan, $currentMonth);
+    }
+    $result = [$inserted, $skipped, $errors, $currentMonth, $currentYear];
+}
+
+[$inserted, $skipped, $errors, $resultMonth, $resultYear] = $result;
+$resultMonthName = date('F Y', mktime(0, 0, 0, $resultMonth, 1, $resultYear));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -91,17 +97,38 @@ foreach ($plan as [$company, $type, $dept, $months]) {
 </head>
 <body class="bg-light">
 <div class="container py-5" style="max-width:600px">
-    <h5 class="mb-4">2026 Cleaning Plan Seed</h5>
-    <div class="alert alert-success">Inserted <strong><?= $inserted ?></strong> new schedule(s).</div>
-    <?php if ($skipped): ?>
-        <div class="alert alert-info"><?= $skipped ?> already existed and were skipped.</div>
+    <h5 class="mb-4">2026 Cleaning Plan Seed — <?= htmlspecialchars($resultMonthName) ?></h5>
+
+    <?php if ($inserted > 0): ?>
+        <div class="alert alert-success">Inserted <strong><?= $inserted ?></strong> new schedule(s) for <?= htmlspecialchars($resultMonthName) ?>.</div>
+    <?php elseif (empty($errors) && $askAhead === null && !$confirmAhead): ?>
+        <div class="alert alert-info">Nothing to create for <?= htmlspecialchars($resultMonthName) ?> — the plan has no more months defined this year.</div>
+    <?php elseif (empty($errors) && $askAhead === null): ?>
+        <div class="alert alert-info">Nothing new to create for <?= htmlspecialchars($resultMonthName) ?> — already up to date.</div>
     <?php endif; ?>
-    <?php if ($pastSkipped): ?>
-        <div class="alert alert-secondary"><?= $pastSkipped ?> fell before this month and were not seeded (no overdue backlog).</div>
+
+    <?php if ($skipped): ?>
+        <div class="alert alert-secondary"><?= $skipped ?> already existed and were skipped.</div>
     <?php endif; ?>
     <?php foreach ($errors as $e): ?>
         <div class="alert alert-danger small"><?= htmlspecialchars($e) ?></div>
     <?php endforeach; ?>
+
+    <?php if ($askAhead !== null):
+        $aheadName = date('F Y', mktime(0, 0, 0, $askAhead, 1, $currentYear));
+    ?>
+    <div class="alert alert-warning">
+        There's nothing to schedule for <?= htmlspecialchars(date('F', mktime(0,0,0,$currentMonth,1))) ?> yet.
+        Would you like to create <strong><?= htmlspecialchars($aheadName) ?></strong>'s schedule ahead of time?
+    </div>
+    <form method="post" class="d-flex gap-2 mb-3">
+        <input type="hidden" name="ahead_month" value="<?= $askAhead ?>">
+        <button type="submit" class="btn btn-warning">
+            <i class="bi bi-calendar2-plus"></i> Yes, create <?= htmlspecialchars($aheadName) ?> now
+        </button>
+    </form>
+    <?php endif; ?>
+
     <a href="index.php" class="btn btn-primary">Go to Calendar &rarr;</a>
     <a href="schedule.php" class="btn btn-outline-secondary">View Schedules</a>
 </div>
