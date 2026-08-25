@@ -116,6 +116,17 @@
     color: #7a3400;
 }
 
+body.plan-edit-mode .plan-cell {
+    cursor: pointer;
+    transition: background-color 0.1s;
+}
+
+body.plan-edit-mode .plan-cell:hover {
+    background-color: #e9ecef;
+    outline: 2px solid #0d6efd;
+    outline-offset: -2px;
+}
+
 .plan-legend-swatch {
     display: inline-block;
     width: 0.9em;

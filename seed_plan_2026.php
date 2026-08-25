@@ -11,17 +11,20 @@ $db = getDB();
 
 $DAY  = 1; // scheduled_date = the 1st of each plan month
 
-$planData = require __DIR__ . '/plan_data.php';
-
-// Flatten plan_data.php's [company][dept][type => months] shape into
-// [company, type, dept, months] tuples.
-$plan = [];
-foreach ($planData as $company => $depts) {
-    foreach ($depts as $dept => $types) {
-        foreach ($types as $type => $months) {
-            $plan[] = [$company, $type, $dept, $months];
-        }
+// Read the live, editable plan from plan_entries (edited via index.php's
+// Annual Plan table) and group into [company, type, dept, months] tuples.
+$planRows = $db->query("SELECT company, dept_name, equipment_type, month FROM plan_entries")->fetchAll(PDO::FETCH_ASSOC);
+$grouped = [];
+foreach ($planRows as $r) {
+    $key = $r['company'] . '|' . $r['dept_name'] . '|' . $r['equipment_type'];
+    if (!isset($grouped[$key])) {
+        $grouped[$key] = ['company' => $r['company'], 'type' => $r['equipment_type'], 'dept' => $r['dept_name'], 'months' => []];
     }
+    $grouped[$key]['months'][] = (int)$r['month'];
+}
+$plan = [];
+foreach ($grouped as $g) {
+    $plan[] = [$g['company'], $g['type'], $g['dept'], $g['months']];
 }
 
 function monthHasPlanEntries(array $plan, int $month): bool {

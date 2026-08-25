@@ -54,6 +54,33 @@ try {
             created_at DATETIME2 NOT NULL DEFAULT SYSDATETIME(),
             CONSTRAINT fk_cleanup_schedule FOREIGN KEY (schedule_id) REFERENCES dbo.schedules(id) ON DELETE CASCADE
         )");
+
+    $pdo->exec("IF OBJECT_ID('dbo.plan_entries', 'U') IS NULL
+        CREATE TABLE dbo.plan_entries (
+            id INT IDENTITY(1,1) PRIMARY KEY,
+            company NVARCHAR(10) NOT NULL CHECK (company IN ('GW','IND')),
+            dept_name NVARCHAR(100) NOT NULL,
+            equipment_type NVARCHAR(10) NOT NULL CHECK (equipment_type IN ('PC','Printer')),
+            month INT NOT NULL CHECK (month BETWEEN 1 AND 12),
+            CONSTRAINT uq_plan_entry UNIQUE (company, dept_name, equipment_type, month)
+        )");
+
+    // Seed plan_entries with the known-good annual plan, but only if the
+    // table is empty — never overwrite edits made through the app's UI.
+    $planCount = $pdo->query("SELECT COUNT(*) c FROM dbo.plan_entries")->fetch(PDO::FETCH_ASSOC)['c'];
+    if ((int)$planCount === 0) {
+        $defaultPlan = require __DIR__ . '/plan_data.php';
+        $ins = $pdo->prepare("INSERT INTO dbo.plan_entries (company, dept_name, equipment_type, month) VALUES (?,?,?,?)");
+        foreach ($defaultPlan as $company => $depts) {
+            foreach ($depts as $dept => $types) {
+                foreach ($types as $type => $months) {
+                    foreach ($months as $m) {
+                        $ins->execute([$company, $dept, $type, $m]);
+                    }
+                }
+            }
+        }
+    }
 } catch (PDOException $e) {
     $errors[] = $e->getMessage();
 }

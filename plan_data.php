@@ -1,8 +1,10 @@
 <?php
-// Single source of truth for the 2026 annual Printer/PC cleaning plan
-// (department x month), matching the source plan spreadsheet. Consumed by
-// seed_plan_2026.php (to insert schedules) and index.php (to display the
-// plan as a reference table). Department order matches the plan sheet.
+// Historical only: the original 2026 annual Printer/PC cleaning plan
+// (department x month), matching the source plan spreadsheet. The live,
+// editable plan now lives in the plan_entries DB table (edited via index.php's
+// Annual Plan cells) — this file is only read once, by setup.php, to seed
+// plan_entries the first time the table is created. Not read at runtime by
+// index.php or seed_plan_2026.php anymore.
 return [
     'GW' => [
         'บัญชี'         => ['Printer' => [1,3,5,7,9,11], 'PC' => [4]],

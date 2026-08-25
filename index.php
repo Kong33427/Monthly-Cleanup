@@ -9,8 +9,22 @@ if ($month > 12) { $month = 1;  $year++; }
 
 $db = getDB();
 
-$planData = require __DIR__ . '/plan_data.php';
 $planMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+
+// Build the Annual Plan table from the DB (plan_entries) so it stays live-editable.
+// plan_departments.php supplies the row roster/order so a department with no
+// entries at all (e.g. เครื่องจักร) still renders as a blank row.
+$planDepts = require __DIR__ . '/plan_departments.php';
+$planData = [];
+foreach ($planDepts as $company => $depts) {
+    foreach ($depts as $dept) {
+        $planData[$company][$dept] = [];
+    }
+}
+$planEntries = $db->query("SELECT company, dept_name, equipment_type, month FROM plan_entries")->fetchAll(PDO::FETCH_ASSOC);
+foreach ($planEntries as $e) {
+    $planData[$e['company']][$e['dept_name']][$e['equipment_type']][] = (int)$e['month'];
+}
 
 $stmt = $db->prepare(
     "SELECT s.*, r.id AS record_id
@@ -113,8 +127,10 @@ include 'header.php';
                             $icon = $s['equipment_type'] === 'PC' ? '&#x1F4BB;' : '&#x1F5A8;';
                         ?>
                         <a href="cleanup.php?id=<?= $s['id'] ?>"
-                           class="cal-event badge <?= $cls ?> d-block mb-1 text-decoration-none">
+                           class="cal-event badge <?= $cls ?> d-block mb-1 text-decoration-none"
+                           title="<?= htmlspecialchars($s['dept_name'] ?? '') ?>">
                             <?= $icon ?> <?= htmlspecialchars($s['company']) ?>-<?= htmlspecialchars($s['equipment_type']) ?>
+                            <?php if ($s['dept_name']): ?><br><small><?= htmlspecialchars($s['dept_name']) ?></small><?php endif; ?>
                             <?php if ($done): ?><i class="bi bi-check-circle-fill"></i><?php endif; ?>
                         </a>
                         <?php endforeach; ?>
@@ -147,7 +163,7 @@ include 'header.php';
 
     <!-- Annual plan reference table -->
     <div class="card shadow-sm mt-3 no-print">
-        <div class="card-header d-flex align-items-center">
+        <div class="card-header d-flex align-items-center flex-wrap gap-2">
             <button class="btn btn-sm btn-outline-secondary" type="button"
                     data-bs-toggle="collapse" data-bs-target="#planTable">
                 <i class="bi bi-calendar2-range"></i> View Annual Plan
@@ -156,9 +172,23 @@ include 'header.php';
                 <span class="plan-legend-swatch" style="background-color:#bcd2f0"></span>P = Printer
                 <span class="plan-legend-swatch ms-2" style="background-color:#f7c9a3"></span>C = Computer/PC
             </span>
+            <div class="ms-auto d-flex gap-2" id="planEditControls">
+                <button class="btn btn-sm btn-outline-primary" type="button" id="planEditBtn">
+                    <i class="bi bi-pencil-square"></i> Edit
+                </button>
+                <button class="btn btn-sm btn-success d-none" type="button" id="planSaveBtn">
+                    <i class="bi bi-check-lg"></i> Save
+                </button>
+                <button class="btn btn-sm btn-outline-secondary d-none" type="button" id="planCancelBtn">
+                    Cancel
+                </button>
+            </div>
         </div>
         <div class="collapse" id="planTable">
             <div class="card-body">
+                <div class="alert alert-info small py-2 d-none" id="planEditHint">
+                    Editing — click any cell to cycle blank → P → C → blank, then click <strong>Save</strong>.
+                </div>
                 <?php foreach ($planData as $company => $depts): ?>
                 <h6 class="fw-bold mt-2 mb-2"><?= htmlspecialchars($company) ?></h6>
                 <div class="table-responsive mb-4">
@@ -178,9 +208,14 @@ include 'header.php';
                                 <?php for ($m = 1; $m <= 12; $m++):
                                     $hasP = in_array($m, $types['Printer'] ?? []);
                                     $hasC = in_array($m, $types['PC'] ?? []);
+                                    $state = $hasP ? 'P' : ($hasC ? 'C' : '');
                                 ?>
-                                <td class="<?= $hasP ? 'plan-cell-p' : ($hasC ? 'plan-cell-c' : '') ?>">
-                                    <?= $hasP ? 'P' : ($hasC ? 'C' : '') ?>
+                                <td class="plan-cell <?= $hasP ? 'plan-cell-p' : ($hasC ? 'plan-cell-c' : '') ?>"
+                                    data-company="<?= htmlspecialchars($company) ?>"
+                                    data-dept="<?= htmlspecialchars($dept) ?>"
+                                    data-month="<?= $m ?>"
+                                    data-original-state="<?= $state ?>">
+                                    <?= $state ?>
                                 </td>
                                 <?php endfor; ?>
                             </tr>
@@ -195,4 +230,87 @@ include 'header.php';
 
 </div>
 
-<?php include 'footer.php'; ?>
+<?php
+$extra_js = <<<'JS'
+<script>
+(function() {
+    const planTableEl   = document.getElementById('planTable');
+    const editBtn        = document.getElementById('planEditBtn');
+    const saveBtn         = document.getElementById('planSaveBtn');
+    const cancelBtn        = document.getElementById('planCancelBtn');
+    const hint               = document.getElementById('planEditHint');
+    const cells              = Array.from(document.querySelectorAll('.plan-cell'));
+    let editing = false;
+    const dirty = new Map(); // cell element -> latest state ('' | 'P' | 'C')
+
+    function applyCellState(cell, state) {
+        cell.classList.remove('plan-cell-p', 'plan-cell-c');
+        if (state === 'P') cell.classList.add('plan-cell-p');
+        if (state === 'C') cell.classList.add('plan-cell-c');
+        cell.textContent = state;
+    }
+
+    function setEditing(on) {
+        editing = on;
+        document.body.classList.toggle('plan-edit-mode', on);
+        editBtn.classList.toggle('d-none', on);
+        saveBtn.classList.toggle('d-none', !on);
+        cancelBtn.classList.toggle('d-none', !on);
+        hint.classList.toggle('d-none', !on);
+        if (on && planTableEl && !planTableEl.classList.contains('show')) {
+            new bootstrap.Collapse(planTableEl, { show: true });
+        }
+    }
+
+    editBtn.addEventListener('click', function() { setEditing(true); });
+
+    cancelBtn.addEventListener('click', function() {
+        dirty.forEach(function(_, cell) { applyCellState(cell, cell.dataset.originalState); });
+        dirty.clear();
+        setEditing(false);
+    });
+
+    cells.forEach(function(cell) {
+        cell.addEventListener('click', function() {
+            if (!editing) return;
+            const current = cell.classList.contains('plan-cell-p') ? 'P'
+                           : cell.classList.contains('plan-cell-c') ? 'C' : '';
+            const next = { '': 'P', 'P': 'C', 'C': '' }[current];
+            applyCellState(cell, next);
+            dirty.set(cell, next);
+        });
+    });
+
+    saveBtn.addEventListener('click', function() {
+        if (dirty.size === 0) { setEditing(false); return; }
+        saveBtn.disabled = true;
+        cancelBtn.disabled = true;
+
+        const payload = Array.from(dirty.entries()).map(function(entry) {
+            const cell = entry[0], state = entry[1];
+            return { company: cell.dataset.company, dept: cell.dataset.dept, month: parseInt(cell.dataset.month, 10), state: state };
+        });
+
+        fetch('plan_save.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                if (data.error) { alert('Could not save: ' + data.error); return; }
+                dirty.forEach(function(state, cell) { cell.dataset.originalState = state; });
+                dirty.clear();
+                setEditing(false);
+            })
+            .catch(function() { alert('Could not save — check your connection and try again.'); })
+            .finally(function() {
+                saveBtn.disabled = false;
+                cancelBtn.disabled = false;
+            });
+    });
+})();
+</script>
+JS;
+include 'footer.php';
+?>
